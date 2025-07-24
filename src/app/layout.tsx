@@ -1,13 +1,21 @@
 // src/app/layout.tsx
 import './globals.css';
-import { Inter } from 'next/font/google'; // Import Inter font
+import { Inter } from 'next/font/google';
+import { ThemeProvider } from '../context/ThemeProvider';
+import React from 'react';
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import ChatHeader from '@/components/chat/ChatHeader';
+import AuthProvider from '@/components/AuthProvider';
 
-// Configure Inter font with subsets for optimization
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
-  title: 'My Awesome Chatbot',
-  description: 'An AI-powered chatbot built with Next.js and Ollama.',
+  title: 'Chat Session',
+  description: 'Your ongoing AI chat session',
+  icons: {
+    icon: '/img/arnold-crop.png'
+  }
 };
 
 export default function RootLayout({
@@ -16,9 +24,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // Apply the font to the html tag
-    <html lang="en" className={inter.className}>
-      <body>{children}</body>
+    <html lang="en">
+      <body>
+        <ThemeProvider>
+          <AuthProvider>
+            <SidebarProvider
+              style={
+                {
+                  "--sidebar-width": "15rem",
+                } as React.CSSProperties
+              }
+            >
+              <AppSidebar />
+              <SidebarInset>
+                <ChatHeader />
+                <main className="flex-1 overflow-auto">
+                  {children}
+                </main>
+              </SidebarInset>
+            </SidebarProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

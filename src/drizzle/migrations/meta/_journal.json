@@ -8,6 +8,27 @@
       "when": 1752394241206,
       "tag": "0000_groovy_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1752803674303,
+      "tag": "0001_spotty_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1752810297362,
+      "tag": "0002_cynical_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1753230930998,
+      "tag": "0003_unknown_tombstone",
+      "breakpoints": true
     }
   ]
 }

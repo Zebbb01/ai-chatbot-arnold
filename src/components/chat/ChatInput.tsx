@@ -1,8 +1,8 @@
 // src/components/chat/ChatInput.tsx
 import React from 'react';
-import Button from '../ui/Button';
 import { useAutosizeTextarea } from '@/hooks/useAutosizeTextarea';
 import { Send, Paperclip, Mic } from 'lucide-react';
+import { Button } from '../ui/button';
 
 interface ChatInputProps {
   input: string;
@@ -28,13 +28,14 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
+    <div className="w-full">
       <div className="max-w-4xl mx-auto">
-        <div className="p-1 relative flex items-end bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all duration-200">
+        <div className="p-3 relative flex items-end bg-background rounded-3xl shadow-sm border border-border focus-within:border-background focus-within:ring-1 focus-within:ring-accent-orange transition-all duration-200">
           <div className="flex items-center space-x-2 pl-3">
             <Button
+              variant={'outline'}
               onClick={() => alert("File attachment coming soon!")}
-              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              className="text-secondary-foreground rounded-full bg-primary hover:bg-primary/90 shadow-sm"
               title="Attach file"
               disabled={isLoading}
             >
@@ -49,27 +50,28 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
             onKeyDown={handleKeyPress}
             rows={1}
             placeholder="Message Arnold..."
-            className="flex-1 resize-none bg-transparent px-3 py-2 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none overflow-hidden"
+            className="flex-1 resize-none bg-transparent px-3 py-2 text-foreground placeholder-foreground/30 focus:outline-none overflow-hidden"
             disabled={isLoading}
             style={{ minHeight: '24px' }}
           />
 
           <div className="flex items-center space-x-2 pr-3">
             <Button
+            variant={'outline'}
               onClick={() => alert("Voice input coming soon!")}
-              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              className="text-secondary-foreground rounded-full bg-primary hover:bg-primary/90 shadow-sm"
               title="Voice input"
               disabled={isLoading}
             >
               <Mic className="w-5 h-5" />
             </Button>
             <Button
+            variant={'outline'}
               onClick={handleSendMessage}
-              className={`p-2 rounded-lg transition-all duration-200 ${
-                isLoading || input.trim() === ''
-                  ? 'text-gray-400 cursor-not-allowed'
-                  : 'text-white bg-blue-500 hover:bg-blue-600 shadow-sm'
-              }`}
+              className={`${isLoading || input.trim() === ''
+                ? 'text-text-muted cursor-not-allowed rounded-full'
+                : 'text-secondary-foreground bg-primary hover:bg-primary/90 shadow-sm rounded-full'
+                }`}
               disabled={isLoading || input.trim() === ''}
               title="Send message"
             >
@@ -77,7 +79,7 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
             </Button>
           </div>
         </div>
-        <p className="text-center text-xs text-gray-500 dark:text-gray-400 mt-3">
+        <p className="text-center text-xs text-text-muted my-2">
           Arnold can make mistakes. Please use Arnold responsibly.
         </p>
       </div>

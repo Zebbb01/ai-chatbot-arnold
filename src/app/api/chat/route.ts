@@ -1,116 +1,396 @@
-// src\app\api\chat\route.ts
+// src/app/api/chat/route.ts - FIXED GOOGLE CALENDAR INTEGRATION
+
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db'; // Our database connection
-import { messages, conversations, users } from '@/drizzle/schema'; // Database table schemas
-import ollama from 'ollama'; // For interacting with the Ollama AI model
-import { v4 as uuidv4 } from 'uuid'; // Generates unique IDs (UUIDs)
-import { eq } from 'drizzle-orm'; // Drizzle ORM utility for equality checks in queries
+import { db } from '@/lib/db';
+import { messages, conversations, schedules, accounts } from '@/drizzle/schema';
+import ollama, { Message } from 'ollama';
+import { v4 as uuidv4 } from 'uuid';
+import { eq, asc } from 'drizzle-orm';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 
-/**
- * Handles POST requests for chat messages.
- * This API route receives a user message and an optional conversation ID.
- * It then saves the user's message, gets a reply from Ollama,
- * and saves the AI's reply, returning it to the client.
- */
-export async function POST(req: NextRequest) {
-  // Extract conversationId (if provided) and the user's message from the request body
-  const { conversationId: clientConversationId, userMessage } = await req.json();
+// ============================================================================
+// TYPES & CONFIGURATIONS
+// ============================================================================
+interface ScheduleEventArgs {
+  title: string;
+  startTime: string;
+  endTime?: string;
+  location?: string;
+}
 
-  let currentConversationId: string;
-  let currentUserId: string; // This would typically come from an authentication system
+const SCHEDULING_KEYWORDS = ['schedule', 'book', 'appointment', 'meeting', 'remind', 'calendar', 'plan'];
+const CASUAL_GREETINGS = ['hello', 'hi', 'good morning', 'hey', 'thanks', 'how are you'];
 
-  // --- Determine or Create User and Conversation ---
-  // If the client doesn't provide a conversationId, it means this is a brand new chat session.
-  // In this case, we create a new anonymous user and a new conversation.
-  // If a conversationId IS provided, we assume it's an ongoing chat.
-  // (In a real application, you'd verify if this ID is valid and belongs to the current authenticated user.)
-  if (!clientConversationId) {
-    // No conversation ID means a new session:
-    currentUserId = uuidv4(); // Generate a fresh unique ID for the new user
-    currentConversationId = uuidv4(); // Generate a fresh unique ID for the new conversation
+const TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_schedule_event',
+      description: 'Creates a new event in the user\'s schedule. ONLY use when user explicitly wants to schedule something.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          title: { type: 'string' as const, description: 'Event title like "Team Meeting", "Doctor Appointment"' },
+          startTime: { type: 'string' as const, description: 'Start time in ISO 8601 format' },
+          endTime: { type: 'string' as const, description: 'Optional end time in ISO 8601 format' },
+          location: { type: 'string' as const, description: 'Optional location' },
+        },
+        required: ['title', 'startTime'],
+      },
+    },
+  },
+];
 
-    try {
-      // 1. Create a new anonymous user in the database
-      await db.insert(users).values({
-        id: currentUserId,
-        name: 'Anonymous User', // In a production app, integrate with user authentication here
-      });
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+function isSchedulingRequest(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (CASUAL_GREETINGS.some(greeting => lower.includes(greeting) && lower.length < 50)) {
+    return false;
+  }
+  return SCHEDULING_KEYWORDS.some(keyword => lower.includes(keyword));
+}
 
-      // 2. Create a new conversation linked to this user
-      await db.insert(conversations).values({
-        id: currentConversationId,
-        userId: currentUserId, // Link the conversation to the new user
-        title: `Chat Session - ${new Date().toLocaleString()}`, // A simple timestamped title
-      });
-    } catch (error) {
-      console.error('Error creating new user or conversation:', error);
-      // Send an error response if database insertion fails
-      return NextResponse.json({ error: 'Failed to start new chat session.' }, { status: 500 });
-    }
-  } else {
-    // A conversation ID was provided, so we continue the existing chat
-    currentConversationId = clientConversationId;
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error occurred';
+}
 
-    // --- IMPORTANT: Production systems would add robust validation here ---
-    // In a real app, you'd fetch the conversation to confirm it exists and
-    // ensure the current authenticated user has access to it.
-    // Example (uncomment and adapt if needed):
-    
-    const existingConversation = await db.select()
-      .from(conversations)
-      .where(eq(conversations.id, currentConversationId))
+function createSystemPrompt(): Message {
+  return {
+    role: 'system',
+    content: `You are Arnold, a friendly AI scheduling assistant.
+
+CRITICAL RULES:
+- ONLY create events when users explicitly request scheduling
+- DO NOT create events for greetings or casual questions
+- Ask for clarification if unsure whether to schedule
+
+Current time: ${new Date().toISOString()}`,
+  };
+}
+
+// ============================================================================
+// GOOGLE CALENDAR INTEGRATION - DIRECT IMPLEMENTATION
+// ============================================================================
+
+async function getGoogleAccessToken(userId: string): Promise<string | null> {
+  try {
+    const account = await db
+      .select({
+        accessToken: accounts.access_token,
+        refreshToken: accounts.refresh_token,
+        expiresAt: accounts.expires_at,
+      })
+      .from(accounts)
+      .where(eq(accounts.userId, userId))
       .limit(1);
 
-    if (existingConversation.length === 0) {
-      console.error('Provided conversationId does not exist:', clientConversationId);
-      return NextResponse.json({ error: 'Invalid conversation ID.' }, { status: 404 });
+    if (!account.length || !account[0].accessToken) {
+      console.error('No Google access token found for user:', userId);
+      return null;
     }
-    // If you need the userId from the existing conversation:
-    currentUserId = existingConversation[0].userId;
+
+    const { accessToken, refreshToken, expiresAt } = account[0];
     
-  }
+    // Check if token is expired
+    if (expiresAt && Date.now() >= expiresAt * 1000) {
+      console.log('Access token expired, attempting refresh...');
+      
+      if (!refreshToken) {
+        console.error('No refresh token available');
+        return null;
+      }
 
-  // --- Save User's Message to Database ---
-  try {
-    await db.insert(messages).values({
-      conversationId: currentConversationId, // Associate message with the correct conversation
-      role: 'user', // Mark this message as from the user
-      content: userMessage,
-    });
+      // Refresh the token
+      const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (!refreshResponse.ok) {
+        const errorText = await refreshResponse.text();
+        console.error('Failed to refresh token:', errorText);
+        return null;
+      }
+
+      const refreshData = await refreshResponse.json();
+      
+      // Update the database with new token
+      await db
+        .update(accounts)
+        .set({
+          access_token: refreshData.access_token,
+          expires_at: Math.floor(Date.now() / 1000) + refreshData.expires_in,
+        })
+        .where(eq(accounts.userId, userId));
+
+      return refreshData.access_token;
+    }
+
+    return accessToken;
   } catch (error) {
-    console.error('Error saving user message to database:', error);
-    // Send an error response if saving the user's message fails
-    return NextResponse.json({ error: 'Failed to save your message.' }, { status: 500 });
+    console.error('Error getting Google access token:', error);
+    return null;
+  }
+}
+
+async function createGoogleCalendarEvent(accessToken: string, event: ScheduleEventArgs) {
+  const calendarEvent = {
+    summary: event.title,
+    location: event.location || '',
+    start: {
+      dateTime: event.startTime,
+      timeZone: 'Asia/Manila',
+    },
+    end: {
+      dateTime: event.endTime || new Date(new Date(event.startTime).getTime() + 3600000).toISOString(),
+      timeZone: 'Asia/Manila',
+    },
+  };
+
+  console.log('Creating calendar event:', calendarEvent);
+
+  const response = await fetch(
+    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(calendarEvent),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Google Calendar API error:', response.status, errorText);
+    throw new Error(`Google Calendar API error: ${response.status} - ${errorText}`);
   }
 
-  // --- Get AI Response from Ollama ---
-  let aiMessage = 'Sorry, I could not get a response from the AI. Please try again later.'; // Default error message
+  return response.json();
+}
+
+// ============================================================================
+// SCHEDULING FUNCTIONS
+// ============================================================================
+
+async function createLocalSchedule(args: ScheduleEventArgs & { userId: string; conversationId: string; }) {
+  await db.insert(schedules).values({
+    userId: args.userId,
+    conversationId: args.conversationId,
+    title: args.title,
+    startTime: new Date(args.startTime),
+    endTime: args.endTime ? new Date(args.endTime) : new Date(new Date(args.startTime).getTime() + 3600000),
+    location: args.location,
+  });
+}
+
+async function syncWithGoogleCalendar(args: ScheduleEventArgs & { userId: string; }): Promise<string> {
+  try {
+    // FIXED: Direct Google Calendar integration without internal API call
+    const accessToken = await getGoogleAccessToken(args.userId);
+    
+    if (!accessToken) {
+      console.error('Unable to get Google Calendar access token');
+      return ' (Note: Could not sync with Google Calendar - please check your authentication)';
+    }
+
+    const calendarEvent = await createGoogleCalendarEvent(accessToken, args);
+    
+    return calendarEvent.htmlLink 
+      ? ` [View in Google Calendar](${calendarEvent.htmlLink})` 
+      : ' (Event created in Google Calendar)';
+    
+  } catch (error: unknown) {
+    console.error('Google Calendar sync error:', getErrorMessage(error));
+    return ' (Note: Could not sync with Google Calendar)';
+  }
+}
+
+async function handleScheduleEvent(args: ScheduleEventArgs & { userId: string; conversationId: string; }): Promise<string> {
+  if (!args.title || !args.startTime) {
+    return "I need the event title and start time to schedule this.";
+  }
 
   try {
+    // Create local schedule entry
+    await createLocalSchedule(args);
+    
+    // Format response
+    const startDate = new Date(args.startTime);
+    let response = `✅ Scheduled "${args.title}" for ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString()}`;
+    if (args.location) response += ` at ${args.location}`;
+    
+    // Sync with Google Calendar
+    const googleLink = await syncWithGoogleCalendar(args);
+    response += googleLink;
+    
+    return response;
+  } catch (error: unknown) {
+    console.error('Schedule creation error:', getErrorMessage(error));
+    return "Sorry, I couldn't create that event. Please try again.";
+  }
+}
+
+// ============================================================================
+// CONVERSATION FUNCTIONS
+// ============================================================================
+
+async function getOrCreateConversation(conversationId: string | null, userId: string, userMessage: string): Promise<string> {
+  if (conversationId) return conversationId;
+
+  const newId = uuidv4();
+  await db.insert(conversations).values({
+    id: newId,
+    userId,
+    title: userMessage.substring(0, 40) || 'Chat Session',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return newId;
+}
+
+async function getConversationHistory(conversationId: string) {
+  return db
+    .select({
+      role: messages.role,
+      content: messages.content,
+    })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt))
+    .limit(10);
+}
+
+async function saveMessage(conversationId: string, role: 'user' | 'assistant', content: string) {
+  await db.insert(messages).values({
+    conversationId,
+    role,
+    content,
+    createdAt: new Date(),
+  });
+}
+
+// ============================================================================
+// MAIN ROUTE HANDLER
+// ============================================================================
+
+export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const { conversationId, userMessage } = await req.json();
+    const userId = session.user.id;
+
+    const currentConversationId = await getOrCreateConversation(conversationId, userId, userMessage);
+    const history = await getConversationHistory(currentConversationId);
+    await saveMessage(currentConversationId, 'user', userMessage);
+
+    const messagesForAI: Message[] = [
+      createSystemPrompt(),
+      ...history.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content })),
+      { role: 'user', content: userMessage },
+    ];
+
+    const shouldSchedule = isSchedulingRequest(userMessage);
+
     const completion = await ollama.chat({
-      model: 'gemma3', // The AI model to use
-      messages: [{ role: 'user', content: userMessage }], // Send only the latest user message
+      model: 'llama3.1:8b-instruct-q4_0',
+      messages: messagesForAI,
+      ...(shouldSchedule && { tools: TOOLS }),
+      options: { temperature: 0.7, num_ctx: 2048 },
     });
-    aiMessage = completion.message.content;
-  } catch (ollamaError) {
-    console.error('Error calling Ollama AI:', ollamaError);
-    // The `aiMessage` will remain the default error message if Ollama fails
-  }
 
-  // --- Save AI's Reply to Database ---
+    let aiResponse: string;
+    const toolCalls = completion.message.tool_calls;
+
+    if (toolCalls && toolCalls.length > 0 && shouldSchedule && toolCalls[0].function.name === 'create_schedule_event') {
+      aiResponse = await handleScheduleEvent({
+        userId,
+        conversationId: currentConversationId,
+        ...(toolCalls[0].function.arguments as ScheduleEventArgs),
+      });
+    } else {
+      aiResponse = completion.message.content || "I didn't understand that. Could you rephrase?";
+    }
+
+    await saveMessage(currentConversationId, 'assistant', aiResponse);
+
+    return NextResponse.json({
+      reply: aiResponse,
+      conversationId: currentConversationId,
+      processingTime: Date.now() - startTime,
+    });
+  } catch (error: unknown) {
+    console.error('Chat route error:', getErrorMessage(error));
+    return NextResponse.json({ error: 'Sorry, something went wrong. Please try again.' }, { status: 500 });
+  }
+}
+
+// ============================================================================
+// UPDATE/DELETE HANDLERS
+// ============================================================================
+
+export async function PUT(req: NextRequest) {
   try {
-    await db.insert(messages).values({
-      conversationId: currentConversationId, // Associate AI reply with the conversation
-      role: 'assistant', // Mark this message as from the AI assistant
-      content: aiMessage, // Use the AI's response (or the default error message)
-    });
-  } catch (error) {
-    console.error('Error saving AI reply to database:', error);
-    // Log the error but don't prevent the response from being sent to the client,
-    // as the AI message itself might still be useful.
-  }
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-  // --- Send Response to Client ---
-  // Return the AI's reply and the conversation ID (useful for subsequent messages)
-  return NextResponse.json({ reply: aiMessage, conversationId: currentConversationId });
+    const { conversationId, action, data } = await req.json();
+
+    const updateData = action === 'rename'
+      ? { title: data.title, updatedAt: new Date() }
+      : { isPinned: data.isPinned, updatedAt: new Date() };
+
+    await db
+      .update(conversations)
+      .set(updateData)
+      .where(eq(conversations.id, conversationId));
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const conversationId = searchParams.get('conversationId');
+
+    if (!conversationId) {
+      return NextResponse.json({ error: 'Conversation ID required' }, { status: 400 });
+    }
+
+    await db.delete(messages).where(eq(messages.conversationId, conversationId));
+    await db.delete(schedules).where(eq(schedules.conversationId, conversationId));
+    await db.delete(conversations).where(eq(conversations.id, conversationId));
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  }
 }

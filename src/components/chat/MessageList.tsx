@@ -1,35 +1,36 @@
 // src/components/chat/MessageList.tsx
 import React from 'react';
 import MessageBubble from './MessageBubble';
-import LoadingSpinner from '../ui/LoadingSpinner';
+import LoadingSpinner from '../ui/loading-spinner';
 import { useChatScroll } from '@/hooks/useChatScroll';
 import { AnimatePresence, motion } from 'framer-motion';
-import { MessageSquare, Sparkles } from 'lucide-react';
+import { Bot, Sparkles } from 'lucide-react';
 
 interface MessageListProps {
   messages: { role: string; content: string }[];
   isLoading: boolean;
 }
 
-export default function MessageList({ messages, isLoading }: MessageListProps) {
+const MessageList = React.memo(function MessageList({ messages, isLoading }: MessageListProps) {
   const messagesEndRef = useChatScroll({ dependency: messages });
 
-  const EmptyState = () => (
+  const EmptyState = React.useCallback(() => (
     <div className="flex flex-col items-center justify-center h-full text-center px-4">
-      <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl flex items-center justify-center mb-4">
-        <Sparkles className="w-8 h-8 text-white" />
+      {/* Background for Sparkles icon changed to primary */}
+      <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mb-4">
+        <Sparkles className="w-8 h-8 text-primary-foreground" />
       </div>
-      <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+      <h2 className="text-2xl font-semibold text-foreground mb-2"> {/* Text color uses theme variable */}
         Hello! I'm Arnold
       </h2>
-      <p className="text-gray-600 dark:text-gray-400 max-w-md">
+      <p className="text-muted-foreground max-w-md"> {/* Text color uses theme variable */}
         I'm an AI assistant created by Anthropic. I can help you with analysis, writing, coding, math, and many other tasks. What would you like to explore today?
       </p>
     </div>
-  );
+  ), []);
 
   return (
-    <main className="flex-1 overflow-y-auto bg-white dark:bg-gray-900">
+    <main className={`flex-1 bg-background ${messages.length > 0 || isLoading ? 'overflow-y-auto' : 'flex items-center justify-center'}`}>
       {messages.length === 0 && !isLoading ? (
         <EmptyState />
       ) : (
@@ -49,13 +50,15 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               className="flex justify-start mb-6"
             >
               <div className="flex items-start space-x-3">
-                <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center">
-                  <MessageSquare className="w-4 h-4 text-white" />
+                {/* Avatar background for typing indicator changed to primary */}
+                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-primary-foreground" />
                 </div>
-                <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3 border border-gray-200 dark:border-gray-700">
+                {/* Message bubble background, border, and text colors use theme variables */}
+                <div className="bg-secondary rounded-2xl rounded-bl-sm px-4 py-3 border border-border">
                   <div className="flex items-center space-x-2">
-                    <LoadingSpinner className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Arnold is thinking...</span>
+                    <LoadingSpinner className="w-4 h-4 text-muted-foreground" /> {/* Spinner color uses theme variable */}
+                    <span className="text-sm text-muted-foreground">Arnold is thinking...</span> {/* Text color uses theme variable */}
                   </div>
                 </div>
               </div>
@@ -66,4 +69,6 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
       )}
     </main>
   );
-}
+});
+
+export default MessageList;

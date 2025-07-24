@@ -1,4 +1,4 @@
-// src/components/ui/LoadingSpinner.tsx
+// src/components/ui/loadingSpinner.tsx
 import React from 'react';
 
 interface LoadingSpinnerProps {

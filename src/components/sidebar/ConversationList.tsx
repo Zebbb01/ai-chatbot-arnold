@@ -31,12 +31,16 @@ export function ConversationList({
   }
 
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton className="font-medium rounded-2xl">
+    // This div makes this whole component capable of managing its own internal scroll.
+    // It is placed inside a flex-grow div in AppSidebar.tsx.
+    <div className="flex flex-col h-full"> {/* This needs to fill the space given by its parent */}
+      <SidebarMenuButton className="font-medium rounded-2xl flex-shrink-0"> {/* Keep the button fixed */}
         <History className="mr-2 size-4" />
         Recent ({sortedConversations.length})
       </SidebarMenuButton>
-      <SidebarMenuSub className="ml-0 border-l-0 px-1.5">
+      
+      {/* This SidebarMenuSub will now be the scrollable area */}
+      <SidebarMenuSub className="ml-0 border-l-0 px-1.5 flex-grow overflow-y-auto custom-scrollbar"> {/* Add flex-grow and overflow-y-auto */}
         {sortedConversations.map((conversation) => (
           <ConversationItem
             key={conversation.id}
@@ -54,6 +58,6 @@ export function ConversationList({
           />
         ))}
       </SidebarMenuSub>
-    </SidebarMenuItem>
+    </div>
   );
 }

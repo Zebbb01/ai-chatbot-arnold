@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { NavUser } from "./nav-user";
 import { useConversations } from "@/hooks/sidebar/useConversations";
-import { ConversationList, DeleteConfirmationDialog } from "./sidebar";
+import { ConversationList, DeleteConfirmationDialog } from "./sidebar"; // Assuming ConversationList is imported from here
 
 /**
  * Main sidebar component for the application
@@ -48,11 +48,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     handleEditTitleChange,
   } = useConversations();
 
+  const isAuthenticated = status === 'authenticated';
+  const isPendingAuth = status === 'loading';
+
   return (
     <>
-      <Sidebar variant="floating" className="p-0" {...props}>
-        {/* Header with logo and app info */}
-        <SidebarHeader>
+      {/* Ensure the main Sidebar itself takes full height and allows its content to flex */}
+      <Sidebar variant="floating" className="p-0 flex flex-col h-full" {...props}>
+        {/* Header with logo and app info - FIXED AT TOP */}
+        <SidebarHeader className="flex-shrink-0"> {/* flex-shrink-0 prevents it from shrinking */}
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild>
@@ -77,52 +81,72 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenu>
         </SidebarHeader>
 
-        {/* Main content area */}
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarMenu className="gap-2">
-              {/* New Chat Button */}
-              <SidebarMenuItem>
-                <SidebarMenuButton className="font-medium rounded-2xl" asChild>
-                  <Link href="/">
-                    <PlusCircle className="mr-2 size-4" />
-                    New Chat
-                  </Link>
+        {/* Main content area - THIS WILL BE THE SCROLLABLE PART */}
+        {/* Changed SidebarContent to be the flex-grow container */}
+        <SidebarContent className="flex flex-col flex-grow overflow-hidden">
+          <SidebarGroup className="flex flex-col h-full">
+            <SidebarMenu className="gap-2 flex flex-col h-full">
+              {/* New Chat Button: Conditionally disabled */}
+              <SidebarMenuItem className="flex-shrink-0">
+                <SidebarMenuButton
+                  className="font-medium rounded-2xl"
+                  asChild
+                  disabled={!isAuthenticated || isPendingAuth} // Disable if not authenticated OR still loading session
+                  aria-disabled={!isAuthenticated || isPendingAuth}
+                >
+                  {isAuthenticated ? (
+                    <Link href="/">
+                      <PlusCircle className="mr-2 size-4" />
+                      New Chat
+                    </Link>
+                  ) : (
+                    // Render as a div that looks like a button when disabled
+                    <div className="flex items-center">
+                      <PlusCircle className="mr-2 size-4" />
+                      New Chat
+                    </div>
+                  )}
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {/* Conversation List or Sign-in prompt */}
+              {/* Conversation List or Sign-in prompt - THIS PART WILL SCROLL */}
               {status === 'authenticated' ? (
-                <ConversationList
-                  conversations={conversations}
-                  currentPath={pathname}
-                  editingId={editingId}
-                  editTitle={editTitle}
-                  isLoading={isLoading}
-                  onEditTitleChange={handleEditTitleChange}
-                  onSaveEdit={handleSaveEdit}
-                  onCancelEdit={handleCancelEdit}
-                  onTogglePin={handleTogglePin}
-                  onStartEdit={handleStartEdit}
-                  onDelete={handleDeleteRequest}
-                />
+                // Wrap ConversationList in a div that handles scrolling
+                <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar">
+                  <ConversationList
+                    conversations={conversations}
+                    currentPath={pathname}
+                    editingId={editingId}
+                    editTitle={editTitle}
+                    isLoading={isLoading}
+                    onEditTitleChange={handleEditTitleChange}
+                    onSaveEdit={handleSaveEdit}
+                    onCancelEdit={handleCancelEdit}
+                    onTogglePin={handleTogglePin}
+                    onStartEdit={handleStartEdit}
+                    onDelete={handleDeleteRequest}
+                  />
+                </div>
               ) : (
-                <SidebarMenuItem>
-                  <SidebarMenuButton disabled className="font-medium cursor-not-allowed">
-                    <History className="mr-2 size-4" />
-                    Recent
-                  </SidebarMenuButton>
+                // Wrap the sign-in prompt in a scrollable div as well, if it gets lengthy
+                <div className="flex-grow overflow-y-auto pr-2">
+                  <SidebarMenuItem className="flex-shrink-0">
+                    <SidebarMenuButton disabled className="font-medium cursor-not-allowed">
+                      <History className="mr-2 size-4" />
+                      Recent
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                   <div className="px-4 py-2 text-xs text-muted-foreground">
                     Sign in to view your chat history.
                   </div>
-                </SidebarMenuItem>
+                </div>
               )}
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
 
-        {/* Footer with user info */}
-        <SidebarFooter>
+        {/* Footer with user info - FIXED AT BOTTOM */}
+        <SidebarFooter className="flex-shrink-0"> {/* flex-shrink-0 prevents it from shrinking */}
           <NavUser />
         </SidebarFooter>
       </Sidebar>

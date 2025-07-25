@@ -104,7 +104,7 @@ export async function createGoogleCalendarEvent(accessToken: string, event: Sche
   if (event.description) {
     enhancedDescription += '\n\n';
   }
-  enhancedDescription += '📅 Scheduled via Arnold AI Assistant';
+  enhancedDescription += '📅 Scheduled via Arnold AI Assistant 🤖';
   
   const calendarEvent: any = {
     summary: event.title,

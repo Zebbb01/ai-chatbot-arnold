@@ -5,7 +5,7 @@ import { ThemeProvider } from '../context/ThemeProvider';
 import React from 'react';
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import ChatHeader from '@/components/chat/ChatHeader';
+import ChatHeader from '@/components/chat/ChatHeader'; // Correctly imported
 import AuthProvider from '@/components/AuthProvider';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -25,20 +25,21 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      <body className="flex h-screen">
         <ThemeProvider>
           <AuthProvider>
             <SidebarProvider
               style={
                 {
-                  "--sidebar-width": "15rem",
+                  "--sidebar-width": "18rem",
                 } as React.CSSProperties
               }
             >
               <AppSidebar />
-              <SidebarInset>
-                <ChatHeader />
-                <main className="flex-1 overflow-auto">
+              {/* SidebarInset correctly provides the main content area */}
+              <SidebarInset className="flex flex-col h-full w-full"> 
+                <ChatHeader /> 
+                <main className="flex-1 overflow-hidden"> 
                   {children}
                 </main>
               </SidebarInset>

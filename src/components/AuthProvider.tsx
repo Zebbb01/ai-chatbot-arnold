@@ -3,11 +3,22 @@
 
 import { SessionProvider } from 'next-auth/react';
 import React from 'react';
+import SessionMonitor from './auth/SessionMonitor';
 
 interface AuthProviderProps {
   children: React.ReactNode;
 }
 
 export default function AuthProvider({ children }: AuthProviderProps) {
-  return <SessionProvider>{children}</SessionProvider>;
+  return (
+    <SessionProvider
+      // Only refetch session every 10 minutes instead of 5
+      refetchInterval={10 * 60}
+      // Disable refetch on window focus to prevent unnecessary requests
+      refetchOnWindowFocus={false}
+    >
+      <SessionMonitor />
+      {children}
+    </SessionProvider>
+  );
 }

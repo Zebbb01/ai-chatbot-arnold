@@ -1,13 +1,13 @@
-// src/drizzle/schema.ts
-import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean } from 'drizzle-orm/pg-core';
-import type { AdapterAccount } from '@auth/core/adapters'; // Import for AdapterAccount type
+// src/drizzle/schema.ts - Updated with invitees support
+import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean, jsonb } from 'drizzle-orm/pg-core';
+import type { AdapterAccount } from '@auth/core/adapters';
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
-  name: text('name'), // Make name nullable as some providers might not give it
-  email: text('email').unique(), // Add email for NextAuth
+  name: text('name'),
+  email: text('email').unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
-  image: text('image'), // For user profile pictures
+  image: text('image'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -22,7 +22,7 @@ export const accounts = pgTable(
     provider: text('provider').notNull(),
     providerAccountId: text('providerAccountId').notNull(),
     refresh_token: text('refresh_token'),
-    access_token: text('access_token'), // Store access token here
+    access_token: text('access_token'),
     expires_at: integer('expires_at'),
     token_type: text('token_type'),
     scope: text('scope'),
@@ -54,15 +54,13 @@ export const verificationTokens = pgTable(
   })
 );
 
-
-// Fixed: Added updatedAt and isPinned fields
 export const conversations = pgTable('conversations', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
   title: text('title').notNull(),
-  isPinned: boolean('is_pinned').default(false), // Added missing field
+  isPinned: boolean('is_pinned').default(false),
   createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(), // Added missing field
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const messages = pgTable('messages', {
@@ -73,13 +71,18 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Enhanced schedules table with invitees support
 export const schedules = pgTable('schedules', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
   conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
   title: text('title').notNull(),
+  description: text('description'), // Added description field
   startTime: timestamp('start_time', { withTimezone: true }).notNull(),
   endTime: timestamp('end_time', { withTimezone: true }),
   location: text('location'),
+  invitees: jsonb('invitees').$type<string[]>(), // Store array of email addresses
+  googleEventId: text('google_event_id'), // Store Google Calendar event ID for future reference
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });

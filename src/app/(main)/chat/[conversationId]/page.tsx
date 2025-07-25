@@ -7,67 +7,41 @@ import { useSession } from 'next-auth/react';
 import ChatContainer from '@/components/chat/ChatContainer';
 import MessageList from '@/components/chat/MessageList';
 import ChatInput from '@/components/chat/ChatInput';
-
-// Define the shape of a message
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-// Consider memoizing this function if it's called very frequently with the same conversationId
-// For a single page, it's less critical, but good practice if reused.
-// However, since it's an async function and its result is used directly,
-// useMemo wouldn't cache the *function*, but its *return value*, which isn't what we want here.
-// Keep it as a regular function outside the component.
-async function getChatHistory(conversationId: string): Promise<Message[]> {
-  try {
-    const response = await fetch(`/api/chat/history?conversationId=${conversationId}`);
-    if (!response.ok) {
-      console.error("Failed to fetch chat history");
-      return [];
-    }
-    return response.json();
-  } catch (error) {
-    console.error("Error in getChatHistory:", error);
-    return [];
-  }
-}
+import { getChatHistory } from '@/lib/chat/chat-api';
+import { Message } from '@/types/chat';
 
 export default function ChatPage() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const params = useParams();
   const conversationId = params.conversationId as string;
   const { data: session, status } = useSession();
   const router = useRouter();
 
+  // Load chat history when conversation ID changes
   useEffect(() => {
     if (conversationId && status === 'authenticated') {
-      setIsLoading(true);
+      setIsLoadingHistory(true);
       getChatHistory(conversationId)
-        .then(history => {
-          setMessages(history);
-        })
+        .then(setMessages)
         .catch(error => {
           console.error("Error loading chat history:", error);
           setMessages([]);
         })
-        .finally(() => {
-          setIsLoading(false);
-        });
+        .finally(() => setIsLoadingHistory(false));
     } else if (status === 'authenticated') {
-      setIsLoading(false);
       setMessages([]);
     }
   }, [conversationId, status]);
 
   const sendMessage = useCallback(async () => {
-    if (input.trim() === '' || !session?.user?.id) return;
+    if (input.trim() === '' || !session?.user?.id || isLoading) return;
 
     const userMessageContent = input;
-    setMessages((prev) => [...prev, { role: 'user', content: userMessageContent }]);
+    setMessages(prev => [...prev, { role: 'user', content: userMessageContent }]);
     setInput('');
     setIsLoading(true);
 
@@ -92,44 +66,33 @@ export default function ChatPage() {
       if (data.conversationId && data.conversationId !== conversationId) {
         router.push(`/chat/${data.conversationId}`);
       } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       }
 
     } catch (error) {
       console.error('Failed to send message:', error);
-      setMessages((prev) => [...prev, {
+      setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Oops! Something went wrong. Please try again.'
       }]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, conversationId, session?.user?.id, setMessages, setInput, setIsLoading, router]);
+  }, [input, conversationId, session?.user?.id, router, isLoading]);
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          {/* Spinner colors using theme variables */}
-          <div className="w-12 h-12 border-4 border-primary-foreground border-t-primary rounded-full animate-spin mx-auto"></div>
-          <p className="text-foreground">Loading Chat...</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Handle unauthenticated state
   if (status === 'unauthenticated') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-foreground">Redirecting to sign in...</p>
-      </div>
-    );
+    router.push('/auth/signin');
+    return null;
   }
 
   return (
     <ChatContainer>
       <div className="flex flex-col flex-1 min-h-0">
-        <MessageList messages={messages} isLoading={isLoading && messages.length === 0} />
+        <MessageList 
+          messages={messages} 
+          isLoading={isLoading || isLoadingHistory} 
+        />
         <ChatInput
           input={input}
           setInput={setInput}

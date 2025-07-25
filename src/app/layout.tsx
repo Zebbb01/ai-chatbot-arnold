@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import ChatHeader from '@/components/chat/ChatHeader'; // Correctly imported
 import AuthProvider from '@/components/AuthProvider';
+import { NotificationProvider } from '@/providers/NotificationProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,7 +29,7 @@ export default function RootLayout({
       <body className="flex h-screen">
         <ThemeProvider>
           <AuthProvider>
-            <SidebarProvider
+            <NotificationProvider><SidebarProvider
               style={
                 {
                   "--sidebar-width": "18rem",
@@ -37,13 +38,15 @@ export default function RootLayout({
             >
               <AppSidebar />
               {/* SidebarInset correctly provides the main content area */}
-              <SidebarInset className="flex flex-col h-full w-full"> 
-                <ChatHeader /> 
-                <main className="flex-1 overflow-hidden"> 
+              <SidebarInset className="flex flex-col h-full w-full">
+                <ChatHeader />
+                <main className="flex-1 overflow-hidden">
+
                   {children}
                 </main>
               </SidebarInset>
             </SidebarProvider>
+            </NotificationProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

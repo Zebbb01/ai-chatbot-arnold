@@ -1,19 +1,9 @@
 // src/components/chat/ChatInput.tsx
-import React, { useState } from 'react';
+import React from 'react';
 import { useAutosizeTextarea } from '@/hooks/useAutosizeTextarea';
-import { Send, Paperclip, Mic, X, FileText, Mic as MicIcon } from 'lucide-react';
+import { Send, Paperclip, Mic } from 'lucide-react'; // No need for X, FileText, MicIcon here
 import { Button } from '../ui/button';
-
-// Notification types
-type NotificationType = 'info' | 'success' | 'warning' | 'error';
-
-interface Notification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  duration?: number;
-}
+import { useNotification } from '@/providers/NotificationProvider'; // Import the new hook
 
 interface ChatInputProps {
   input: string;
@@ -22,100 +12,9 @@ interface ChatInputProps {
   isLoading: boolean;
 }
 
-// Notification Component
-const NotificationItem: React.FC<{
-  notification: Notification;
-  onDismiss: (id: string) => void;
-}> = ({ notification, onDismiss }) => {
-  const { id, type, title, message } = notification;
-
-  const getIcon = () => {
-    if (title.includes('File')) return <FileText className="w-5 h-5 text-primary" />;
-    if (title.includes('Voice')) return <MicIcon className="w-5 h-5 text-primary" />;
-    return <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs">i</div>;
-  };
-
-  return (
-    <div className="bg-card border border-border rounded-lg p-4 shadow-lg mb-2 transform transition-all duration-300 ease-in-out">
-      <div className="flex items-start justify-between">
-        <div className="flex items-start space-x-3">
-          <div className="flex-shrink-0 mt-0.5">
-            {getIcon()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-semibold text-card-foreground">{title}</h4>
-            <p className="text-sm text-muted-foreground mt-1">{message}</p>
-          </div>
-        </div>
-        <button
-          onClick={() => onDismiss(id)}
-          className="flex-shrink-0 ml-2 p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          aria-label="Dismiss notification"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Notification Container
-const NotificationContainer: React.FC<{
-  notifications: Notification[];
-  onDismiss: (id: string) => void;
-}> = ({ notifications, onDismiss }) => {
-  if (notifications.length === 0) return null;
-
-  return (
-    <div className="fixed top-4 right-4 z-50 w-96 max-w-sm">
-      {notifications.map((notification) => (
-        <NotificationItem
-          key={notification.id}
-          notification={notification}
-          onDismiss={onDismiss}
-        />
-      ))}
-    </div>
-  );
-};
-
-// Custom hook for notifications
-const useNotifications = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  const addNotification = (
-    type: NotificationType,
-    title: string,
-    message: string,
-    duration: number = 5000
-  ) => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const notification: Notification = { id, type, title, message, duration };
-
-    setNotifications(prev => [...prev, notification]);
-
-    // Auto-dismiss after duration
-    if (duration > 0) {
-      setTimeout(() => {
-        dismissNotification(id);
-      }, duration);
-    }
-  };
-
-  const dismissNotification = (id: string) => {
-    setNotifications(prev => prev.filter(notification => notification.id !== id));
-  };
-
-  return {
-    notifications,
-    addNotification,
-    dismissNotification,
-  };
-};
-
 export default function ChatInput({ input, setInput, sendMessage, isLoading }: ChatInputProps) {
   const textareaRef = useAutosizeTextarea({ value: input, maxHeight: 200 });
-  const { notifications, addNotification, dismissNotification } = useNotifications();
+  const { addNotification } = useNotification(); // Use the context hook
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !isLoading && input.trim() !== '') {
@@ -150,12 +49,7 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
 
   return (
     <>
-      {/* Notification Container */}
-      <NotificationContainer
-        notifications={notifications}
-        onDismiss={dismissNotification}
-      />
-
+      {/* The NotificationContainer is now rendered by NotificationProvider, no need here */}
       <div className="w-full">
         <div className="max-w-4xl mx-auto">
           <div className="p-3 relative flex items-end bg-background rounded-3xl shadow-sm border border-border/50 hover:border-border focus-within:border-border focus-within:ring-accent-orange transition-all duration-200">

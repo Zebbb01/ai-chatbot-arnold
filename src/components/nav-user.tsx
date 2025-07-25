@@ -33,10 +33,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { useNotification } from "@/providers/NotificationProvider" // Import the useNotification hook
 
 export function NavUser() {
   const { isMobile } = useSidebar()
   const { data: session, status } = useSession()
+  const { addNotification } = useNotification() // Initialize the notification hook
 
   // Loading state
   if (status === "loading") {
@@ -85,6 +87,44 @@ export function NavUser() {
     signOut()
   }
 
+  // Notification handlers for menu items
+  const handleUpgradeClick = () => {
+    addNotification(
+      'info',
+      'Upgrade to Pro',
+      'The Upgrade to Pro feature is coming soon! Get ready for exclusive benefits.',
+      5000 // Display for 5 seconds
+    );
+  };
+
+  const handleAccountClick = () => {
+    addNotification(
+      'info',
+      'Account Settings',
+      'Your account settings are under construction. Stay tuned for personalized options!',
+      5000
+    );
+  };
+
+  const handleBillingClick = () => {
+    addNotification(
+      'info',
+      'Billing Information',
+      'Billing management will be available soon. We\'ll keep you updated!',
+      5000
+    );
+  };
+
+  const handleNotificationsClick = () => {
+    addNotification(
+      'info',
+      'Notification Preferences',
+      'Manage your notification settings here soon. Don\'t miss out!',
+      5000
+    );
+  };
+
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -129,29 +169,29 @@ export function NavUser() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
+              <DropdownMenuItem onClick={handleUpgradeClick}>
+                <Sparkles className="mr-2 size-4" />
                 Upgrade to Pro
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheck />
+              <DropdownMenuItem onClick={handleAccountClick}>
+                <BadgeCheck className="mr-2 size-4" />
                 Account
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
+              <DropdownMenuItem onClick={handleBillingClick}>
+                <CreditCard className="mr-2 size-4" />
                 Billing
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Bell />
+              <DropdownMenuItem onClick={handleNotificationsClick}>
+                <Bell className="mr-2 size-4" />
                 Notifications
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>
-              <LogOut />
+              <LogOut className="mr-2 size-4" />
               Log out
             </DropdownMenuItem>
           </DropdownMenuContent>

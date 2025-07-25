@@ -6,7 +6,7 @@ import React from 'react';
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import ChatHeader from '@/components/chat/ChatHeader'; // Correctly imported
-import AuthProvider from '@/components/AuthProvider';
+import AuthProvider from '@/providers/AuthProvider';
 import { NotificationProvider } from '@/providers/NotificationProvider';
 
 const inter = Inter({ subsets: ['latin'] });

@@ -1,4 +1,7 @@
-// src/app/page.tsx
+// =============================================================================
+// src/app/page.tsx - UPDATED WITH RATE LIMIT HANDLING
+// =============================================================================
+
 'use client';
 
 import { useState } from 'react';
@@ -7,12 +10,16 @@ import ChatContainer from '@/components/chat/ChatContainer';
 import MessageList from '@/components/chat/MessageList';
 import ChatInput from '@/components/chat/ChatInput';
 import { useSession } from 'next-auth/react';
-import Image from 'next/image';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Bot, Sparkles } from 'lucide-react';
+import RateLimitModal from '@/components/ui/RateLimitModal'; // NEW IMPORT
 
 export default function HomePage() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showRateLimitModal, setShowRateLimitModal] = useState(false); // NEW STATE
+  const [rateLimitInfo, setRateLimitInfo] = useState<any>(null); // NEW STATE
   const router = useRouter();
   const { data: session, status } = useSession();
 
@@ -29,11 +36,26 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversationId: null, // New conversation
+          conversationId: null,
           userMessage: userMessage,
           userId: session.user.id,
         }),
       });
+
+      // NEW: Handle rate limit response
+      if (res.status === 429) {
+        const errorData = await res.json();
+        setRateLimitInfo({
+          resetTime: errorData.resetTime,
+          message: errorData.message
+        });
+        setShowRateLimitModal(true);
+        
+        // Remove the user message since it wasn't processed
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(userMessage); // Restore the input
+        return;
+      }
 
       if (!res.ok) {
         const errorData = await res.json();
@@ -42,11 +64,9 @@ export default function HomePage() {
 
       const data = await res.json();
 
-      // IMPORTANT: Redirect before updating state if possible to avoid rendering this page again
       if (data.conversationId) {
         router.push(`/chat/${data.conversationId}`);
       } else {
-        // If for some reason a conversationId isn't returned, update the state here
         setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
       }
     } catch (error) {
@@ -60,73 +80,69 @@ export default function HomePage() {
     }
   };
 
+  // Enhanced Loading State
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-primary-foreground border-t-primary rounded-full animate-spin mx-auto"></div>
-          <p className="text-foreground">Loading...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/10">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center justify-center text-center space-y-4"
+        >
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="w-16 h-16 bg-primary rounded-full flex items-center justify-center shadow-lg"
+          >
+            <Bot className="w-8 h-8 text-primary-foreground" />
+          </motion.div>
+          <p className="text-foreground text-lg font-medium">Booting up Arnold... Please wait.</p>
+        </motion.div>
       </div>
     );
   }
-  
+
+  // Enhanced Unauthenticated State
   if (status === 'unauthenticated') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-foreground">Redirecting to sign in...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-500/10 via-background to-orange-500/10">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="text-center space-y-4 p-8 bg-card rounded-lg shadow-xl"
+        >
+          <Sparkles className="w-12 h-12 text-accent mx-auto animate-pulse" />
+          <h2 className="text-2xl font-bold text-foreground">Authentication Required</h2>
+          <p className="text-muted-foreground">You need to be signed in to use Arnold. Redirecting...</p>
+          <div className="w-8 h-8 border-t-2 border-b-2 border-primary rounded-full animate-spin mx-auto mt-4"></div>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <ChatContainer>
-      <div className="flex flex-col flex-1 min-h-0">
-        {messages.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center p-4">
-            <div className="text-center max-w-md space-y-4">
-              <div className="w-36 h-36 relative rounded-full overflow-hidden mx-auto bg-muted"> 
-                <Image
-                  src="/img/logo.png"
-                  alt="Arnold Logo Preview"
-                  fill
-                  style={{ objectFit: 'cover' }}
-                  className="rounded-full"
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-foreground mb-2">
-                  Welcome back, {session?.user?.name?.split(' ')[0] || 'there'}! 👋
-                </h2>
-                <p className="text-muted-foreground">
-                  I'm Arnold, your AI scheduling assistant. I can help you create calendar events,
-                  manage appointments, and answer any questions you might have.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-3 text-sm">
-                <div className="bg-secondary border border-border rounded-2xl p-3 text-left">
-                  <p className="font-medium text-primary">📅 Schedule Events</p>
-                  <p className="text-foreground">Try: "Schedule a team meeting tomorrow at 2 PM and invite john@company.com and sarah@company.com"</p>
-                </div>
-                <div className="bg-secondary border border-border rounded-2xl p-3 text-left">
-                  <p className="font-medium text-primary">🗓️ Calendar Integration</p>
-                  <p className="text-foreground">Events automatically sync with your Google Calendar</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
+    <>
+      {/* NEW: Rate Limit Modal */}
+      <RateLimitModal 
+        isOpen={showRateLimitModal}
+        onClose={() => setShowRateLimitModal(false)}
+        resetTime={rateLimitInfo?.resetTime || new Date().toISOString()}
+        message={rateLimitInfo?.message}
+      />
+
+      <ChatContainer>
+        <div className="flex flex-col flex-1 min-h-0">
           <MessageList messages={messages} isLoading={isLoading} />
-        )}
-        
-        <ChatInput
-          input={input}
-          setInput={setInput}
-          sendMessage={sendMessage}
-          isLoading={isLoading}
-        />
-      </div>
-    </ChatContainer>
+          <ChatInput
+            input={input}
+            setInput={setInput}
+            sendMessage={sendMessage}
+            isLoading={isLoading}
+          />
+        </div>
+      </ChatContainer>
+    </>
   );
 }

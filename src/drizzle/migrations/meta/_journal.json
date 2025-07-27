@@ -36,6 +36,20 @@
       "when": 1753332070322,
       "tag": "0004_cuddly_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1753521657215,
+      "tag": "0005_empty_mac_gargan",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1753521966051,
+      "tag": "0006_abandoned_tana_nile",
+      "breakpoints": true
     }
   ]
 }

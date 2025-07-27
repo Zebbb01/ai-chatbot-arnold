@@ -1,11 +1,11 @@
 // src/drizzle/schema.ts - Updated with invitees support
-import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean, jsonb, uniqueIndex } from 'drizzle-orm/pg-core'; // <--- Add uniqueIndex here
 import type { AdapterAccount } from '@auth/core/adapters';
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name'),
-  email: text('email').unique(),
+  email: text('email').unique(), // This is correct for a single unique column
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -86,3 +86,16 @@ export const schedules = pgTable('schedules', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+export const userUsage = pgTable('user_usage', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(), // Format: YYYY-MM-DD
+  requestCount: integer('request_count').default(0),
+  lastRequestAt: timestamp('last_request_at').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  // Add unique constraint for userId + date combination
+  uniqueUserDate: uniqueIndex('unique_user_date').on(table.userId, table.date),
+}));

@@ -39,7 +39,7 @@ export default function SignInPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4"> {/* Use bg-background */}
       <div className="w-full max-w-md">
-        <Card className="shadow-lg border-border bg-card text-card-foreground"> {/* Use theme variables for card */}
+        <Card className="shadow-lg border-border bg-card text-card-foreground rounded-2xl"> {/* Use theme variables for card */}
           <CardHeader className="text-center space-y-4">
             {/* Logo Section - Use Image component and theme colors */}
             <div className="mx-auto w-16 h-16 relative rounded-full overflow-hidden bg-muted flex items-center justify-center">
@@ -91,7 +91,7 @@ export default function SignInPage() {
             <Button
               onClick={handleSignIn}
               disabled={isLoading}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-md transition-all duration-200"
+              className="w-full h-12 bg-primary hover:bg-primary/90 rounded-2xl text-primary-foreground font-medium shadow-md transition-all duration-200"
             >
               {isLoading ? (
                 <div className="flex items-center gap-2">

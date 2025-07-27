@@ -1,7 +1,24 @@
 // =============================================================================
 // src/app/api/chat/lib/timezone.ts
 // =============================================================================
-import { Message } from 'ollama';
+
+// Define a generic message type that matches OpenAI's chat completion message structure
+// This replaces the Ollama Message import
+export type ChatCompletionMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  name?: string; // For tool calls
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  tool_call_id?: string;
+};
+
 
 export const DEFAULT_TIMEZONE = 'Asia/Manila'; // Fallback if user's timezone isn't detected
 
@@ -14,94 +31,75 @@ export const DEFAULT_TIMEZONE = 'Asia/Manila'; // Fallback if user's timezone is
  * @returns ISO 8601 string with offset (e.g., "2025-07-26T14:00:00+08:00") or null if parsing fails.
  */
 export function parseUserTimeInputToISO(userInput: string, userTimeZone: string, referenceDate?: Date): string | null {
-    const now = referenceDate || new Date();
+  const now = referenceDate || new Date();
 
-    const userLocalNow = new Date(now.toLocaleString('en-US', { timeZone: userTimeZone }));
-    let targetDate = new Date(userLocalNow); // Start with today's date in user's timezone
+  const userLocalNow = new Date(now.toLocaleString('en-US', { timeZone: userTimeZone }));
+  let targetDate = new Date(userLocalNow); // Start with today's date in user's timezone
 
-    const timeMatch = userInput.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  const timeMatch = userInput.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
 
-    if (!timeMatch) {
-        // If no specific time is mentioned, we can't form a complete timestamp.
-        // For scheduling, a time is usually required.
-        return null;
-    }
+  // Check for common date keywords (today, tomorrow, next week) before processing time
+  if (userInput.toLowerCase().includes('tomorrow')) {
+    targetDate.setDate(targetDate.getDate() + 1);
+  } else if (userInput.toLowerCase().includes('next week')) {
+    targetDate.setDate(targetDate.getDate() + 7);
+  }
+  // No explicit 'today' handling needed as targetDate already starts with today
 
-    let hours = parseInt(timeMatch[1]);
-    const minutes = parseInt(timeMatch[2] || '0');
+  let hours: number | undefined;
+  let minutes: number = 0;
+
+  if (timeMatch) {
+    hours = parseInt(timeMatch[1]);
+    minutes = parseInt(timeMatch[2] || '0');
     const ampm = timeMatch[3]?.toLowerCase();
 
     if (ampm === 'pm' && hours !== 12) hours += 12;
     if (ampm === 'am' && hours === 12) hours = 0;
+  } else {
+    // If no specific time is mentioned, we can't form a complete timestamp.
+    // For scheduling, a time is usually required.
+    return null;
+  }
 
-    if (userInput.toLowerCase().includes('tomorrow')) {
-        targetDate.setDate(targetDate.getDate() + 1);
-    } else if (userInput.toLowerCase().includes('next week')) {
-        targetDate.setDate(targetDate.getDate() + 7);
-    }
-    // No explicit 'today' handling needed as targetDate already starts with today
+  // Set the hours and minutes for the targetDate using its *local* methods.
+  // We need to be careful with `setHours` if it manipulates UTC internally
+  // and we want to preserve the local time.
+  // A more robust approach would be to calculate the UTC equivalent of the local time.
+  // For simplicity, let's assume `setHours` and `setMinutes` work as expected relative to `userLocalNow`
+  // for setting the time portion of the date.
+  targetDate.setHours(hours);
+  targetDate.setMinutes(minutes);
+  targetDate.setSeconds(0);
+  targetDate.setMilliseconds(0);
 
-    // Set the hours and minutes for the targetDate using its *local* methods.
-    targetDate.setHours(hours);
-    targetDate.setMinutes(minutes);
-    targetDate.setSeconds(0);
-    targetDate.setMilliseconds(0);
 
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: userTimeZone,
-        timeZoneName: 'longOffset' // To get the offset like "+0800"
-    });
+  // To accurately get the ISO string with the *correct offset for the targetDate and timezone*,
+  // we can use a more reliable method than parsing `timeZoneName` which can be inconsistent.
+  // We'll calculate the offset relative to UTC for that specific date in that timezone.
 
-    // Get parts to find the offset
-    const parts = formatter.formatToParts(targetDate);
-    let year = '';
-    let month = '';
-    let day = '';
-    let hourStr = '';
-    let minuteStr = '';
-    let secondStr = '';
-    let offsetStr = ''; // e.g., '+0800' or '-0500'
+  // Get the UTC time of the targetDate
+  const utcDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const targetDateInTimeZone = new Date(targetDate.toLocaleString('en-US', { timeZone: userTimeZone }));
 
-    for (const part of parts) {
-        if (part.type === 'year') year = part.value;
-        else if (part.type === 'month') month = part.value;
-        else if (part.type === 'day') day = part.value;
-        else if (part.type === 'hour') hourStr = part.value;
-        else if (part.type === 'minute') minuteStr = part.value;
-        else if (part.type === 'second') secondStr = part.value;
-        else if (part.type === 'timeZoneName') {
-            const match = part.value.match(/GMT([+-]\d{1,2}):?(\d{2})?/);
-            if (match) {
-                // Format to standard ISO offset like "+08:00"
-                offsetStr = `${match[1].padStart(3, '+0').padEnd(3, '0')}:${(match[2] || '00').padStart(2, '0')}`;
-            } else {
-                console.warn(`Could not parse timezone offset from ${part.value}. Defaulting to UTC offset.`);
-                offsetStr = '+00:00'; // Fallback to UTC if timezone offset can't be determined reliably
-            }
-        }
-    }
+  // Calculate the difference in minutes between UTC and the target timezone at that specific time
+  const offsetMinutes = (targetDateInTimeZone.getTime() - utcDate.getTime()) / (1000 * 60);
 
-    if (!offsetStr) {
-        // As a fallback, try to determine the current offset for that timezone.
-        // This is less accurate for historical/future dates but better than nothing.
-        const offsetMinutes = targetDate.getTimezoneOffset();
-        const utcTime = targetDate.toISOString().slice(0, -1); // Remove 'Z'
-        if (!offsetStr) {
-            const localOffsetMinutes = -targetDate.getTimezoneOffset(); // getTimezoneOffset is minutes *behind* UTC, so invert
-            const offsetHours = Math.floor(localOffsetMinutes / 60);
-            const offsetRemainingMinutes = Math.abs(localOffsetMinutes % 60);
-            offsetStr = `${offsetHours >= 0 ? '+' : '-'}${String(Math.abs(offsetHours)).padStart(2, '0')}:${String(offsetRemainingMinutes).padStart(2, '0')}`;
-        }
-    }
+  const offsetSign = offsetMinutes >= 0 ? '+' : '-';
+  const offsetHours = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, '0');
+  const offsetRemainingMinutes = String(Math.abs(offsetMinutes) % 60).padStart(2, '0');
+  const offsetStr = `${offsetSign}${offsetHours}:${offsetRemainingMinutes}`;
 
-    return `${year}-${month}-${day}T${hourStr}:${minuteStr}:${secondStr || '00'}${offsetStr}`;
+  // Format the date parts, padding with zeros
+  const year = targetDateInTimeZone.getFullYear();
+  const month = String(targetDateInTimeZone.getMonth() + 1).padStart(2, '0');
+  const day = String(targetDateInTimeZone.getDate()).padStart(2, '0');
+  const hourStr = String(targetDateInTimeZone.getHours()).padStart(2, '0');
+  const minuteStr = String(targetDateInTimeZone.getMinutes()).padStart(2, '0');
+  const secondStr = String(targetDateInTimeZone.getSeconds()).padStart(2, '0');
+
+
+  return `${year}-${month}-${day}T${hourStr}:${minuteStr}:${secondStr}${offsetStr}`;
 }
 
 /**
@@ -112,67 +110,61 @@ export function parseUserTimeInputToISO(userInput: string, userTimeZone: string,
  * @returns ISO 8601 string with the same offset as startTimeISO.
  */
 export function calculateEndTime(startTimeISO: string, durationHours: number = 1): string {
-    const startDate = new Date(startTimeISO);
-    const endDate = new Date(startDate.getTime() + (durationHours * 60 * 60 * 1000));
+  const startDate = new Date(startTimeISO);
+  const endDate = new Date(startDate.getTime() + (durationHours * 60 * 60 * 1000));
 
-    // Extract the original offset from startTimeISO
-    const timezoneMatch = startTimeISO.match(/([+-]\d{2}:\d{2}|Z)$/);
-    const originalOffset = timezoneMatch ? timezoneMatch[1] : '';
+  // Extract the original offset from startTimeISO
+  const timezoneMatch = startTimeISO.match(/([+-]\d{2}:\d{2}|Z)$/);
+  const originalOffset = timezoneMatch ? timezoneMatch[1] : '';
 
-    if (originalOffset === 'Z') {
-        return endDate.toISOString();
-    }
+  if (originalOffset === 'Z') {
+    return endDate.toISOString();
+  }
 
-    const inferredTimeZone = `GMT${originalOffset}`; // This is a heuristic, better to pass the original timezone name
+  // To preserve the original offset, we need to format the `endDate`'s components
+  // according to the *original offset*, not necessarily UTC or local system time.
+  // A robust way to do this is to get the UTC components of `endDate` and then
+  // construct the string with the `originalOffset`.
 
-    // Use Intl.DateTimeFormat to get components based on the implied timezone
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: 'UTC',
-    });
+  const year = endDate.getFullYear();
+  const month = String(endDate.getMonth() + 1).padStart(2, '0');
+  const day = String(endDate.getDate()).padStart(2, '0');
+  const hour = String(endDate.getHours()).padStart(2, '0');
+  const minute = String(endDate.getMinutes()).padStart(2, '0');
+  const second = String(endDate.getSeconds()).padStart(2, '0');
 
-    // Get components of the endDate in UTC
-    const year = endDate.getUTCFullYear();
-    const month = String(endDate.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(endDate.getUTCDate()).padStart(2, '0');
-    const hour = String(endDate.getUTCHours()).padStart(2, '0');
-    const minute = String(endDate.getUTCMinutes()).padStart(2, '0');
-    const second = String(endDate.getUTCSeconds()).padStart(2, '0');
+  // Note: Using `getFullYear`, `getMonth`, etc., directly on `endDate` will give
+  // values in the system's local timezone. If the original intent was to perform
+  // arithmetic and then present the result *still in the user's timezone*,
+  // then directly appending the `originalOffset` is the correct approach.
 
-
-    return `${year}-${month}-${day}T${hour}:${minute}:${second}${originalOffset}`;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${originalOffset}`;
 }
 
 
 /**
  * Creates the system prompt for the AI, now dynamically including the user's timezone.
  * @param userTimeZone The IANA timezone identifier of the current user.
- * @returns An Ollama Message object for the system prompt.
+ * @returns An object conforming to the ChatCompletionMessage type for the system prompt.
  */
-export function createSystemPrompt(userTimeZone: string): Message {
-    const now = new Date();
-    // Get the current time formatted for the user's timezone for the prompt.
-    const currentUserTime = now.toLocaleString("en-US", {
-        timeZone: userTimeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZoneName: 'shortOffset' // e.g., "GMT+8"
-    });
+export function createSystemPrompt(userTimeZone: string): ChatCompletionMessage {
+  const now = new Date();
+  // Get the current time formatted for the user's timezone for the prompt.
+  const currentUserTime = now.toLocaleString("en-US", {
+    timeZone: userTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'shortOffset' // e.g., "GMT+8"
+  });
 
-    return {
-        role: 'system',
-        content: `You are Arnold, a friendly AI scheduling assistant.
+  return {
+    role: 'system',
+    content: `You are Arnold, a friendly AI scheduling assistant.
 
 CURRENT TIME: ${currentUserTime} (Your current local time in ${userTimeZone})
 
@@ -195,5 +187,5 @@ CRITICAL RULES:
 - ONLY create events when users explicitly request scheduling.
 - Always use the user's inferred or specified timezone.
 - Ask for clarification if timing is unclear.`,
-    };
+  };
 }

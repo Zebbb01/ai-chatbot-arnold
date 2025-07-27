@@ -1,11 +1,14 @@
-// src/components/chat/ChatInput.tsx - UPDATED WITH RATE LIMITING
-import React, { useState } from 'react';
+// =============================================================================
+// src/components/chat/ChatInput.tsx - FIXED WITH PROPER RATE LIMIT HANDLING
+// =============================================================================
+
+import React, { useState, useEffect } from 'react';
 import { useAutosizeTextarea } from '@/hooks/useAutosizeTextarea';
-import { Send, Paperclip, Mic } from 'lucide-react';
+import { Send, Paperclip, Mic, Clock, AlertCircle, CheckCircle, XCircle, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useNotification } from '@/providers/NotificationProvider';
-import { useRateLimit } from '@/hooks/useRateLimit'; // NEW IMPORT
-import RateLimitModal from '@/components/ui/RateLimitModal'; // NEW IMPORT
+import { useRateLimit } from '@/hooks/useRateLimit';
+import RateLimitModal from '@/components/ui/RateLimitModal';
 
 interface ChatInputProps {
   input: string;
@@ -14,49 +17,132 @@ interface ChatInputProps {
   isLoading: boolean;
 }
 
+const getCostIcon = (cost: string) => {
+  switch (cost) {
+    case 'low': return <span className="w-2 h-2 rounded-full bg-blue-500" />;
+    case 'high': return <span className="w-2 h-2 rounded-full bg-purple-500" />;
+    default: return <span className="w-2 h-2 rounded-full bg-gray-500" />;
+  }
+};
+
+const getCostColor = (cost: string) => {
+  switch (cost) {
+    case 'low': return 'text-blue-600 bg-blue-50 border-blue-200';
+    case 'high': return 'text-purple-600 bg-purple-50 border-purple-200';
+    default: return 'text-gray-600 bg-gray-50 border-gray-200';
+  }
+};
+
+const formatCooldownTime = (minutes: number) => {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+};
+
+const getModelStatusIcon = (model: any) => {
+  // FIXED: Better status checking logic
+  if (model.inCooldown) {
+    return <Clock className="w-3 h-3 text-orange-500" />;
+  } else if (model.remaining > 0) {
+    return <CheckCircle className="w-3 h-3 text-green-500" />;
+  } else {
+    return <XCircle className="w-3 h-3 text-red-500" />;
+  }
+};
+
+// FIXED: Determine model cost based on actual model data
+const getModelCost = (model: any, index: number) => {
+  // Map known models to their costs
+  const costMapping: { [key: string]: string } = {
+    'openai/gpt-4.1': 'high',
+    'openai/gpt-4.1-mini': 'low',
+    'openai/gpt-4.1-nano': 'low',
+    'xai/grok-3-mini': 'low'
+  };
+  
+  return costMapping[model.name] || (index === 0 ? 'high' : 'low');
+};
+
 export default function ChatInput({ input, setInput, sendMessage, isLoading }: ChatInputProps) {
   const textareaRef = useAutosizeTextarea({ value: input, maxHeight: 200 });
   const { addNotification } = useNotification();
   
-  // NEW: Rate limiting state
+  // Rate limiting state with enhanced usage info
   const { usage, refetch } = useRateLimit();
   const [showRateLimitModal, setShowRateLimitModal] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [isModelStatusVisible, setIsModelStatusVisible] = useState(false);
+
+  // Update current time every minute to refresh cooldown displays
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !isLoading && input.trim() !== '') {
       e.preventDefault();
-      handleSendMessage(); // Use our new function
+      handleSendMessage();
     }
   };
 
-  // UPDATED: Enhanced send message function with rate limit checking
   const handleSendMessage = async () => {
     if (input.trim() === '' || isLoading) return;
     
-    // Check if user has exceeded their limit using null-safe comparison
-    if (usage && (usage.requests_remaining ?? 0) <= 0) {
+    // FIXED: Better availability checking
+    const availableModels = usage?.availableModels?.filter(model => 
+      !model.inCooldown && model.remaining > 0
+    ) || [];
+    
+    if (availableModels.length === 0) {
       setShowRateLimitModal(true);
       return;
     }
 
-    // Show warning if user is close to limit
-    const remaining = usage?.requests_remaining ?? Infinity;
-    if (usage && remaining <= 3 && remaining > 0) {
+    // Enhanced warning system
+    if (availableModels.length === 1) {
+      const lastAvailable = availableModels[0];
+      if (lastAvailable.remaining <= 3) {
+        addNotification(
+          'warning',
+          'Low Usage Warning',
+          `Only ${lastAvailable.remaining} requests left on ${lastAvailable.displayName}. After use, this model will be in cooldown for 3 hours.`,
+          8000
+        );
+      }
+    }
+
+    // Show next available model info
+    const modelsInCooldown = usage?.availableModels?.filter(model => 
+      model.inCooldown && model.minutesRemaining
+    ).sort((a, b) => (a.minutesRemaining || 0) - (b.minutesRemaining || 0)) || [];
+
+    if (availableModels.length <= 2 && modelsInCooldown.length > 0) {
+      const nextAvailable = modelsInCooldown[0];
       addNotification(
-        'warning',
-        'Usage Warning',
-        `You have ${remaining} requests remaining today. Your limit resets at midnight.`,
+        'info',
+        'Model Status',
+        `${nextAvailable.displayName} will be available in ${formatCooldownTime(nextAvailable.minutesRemaining || 0)}.`,
         5000
       );
     }
 
-    // Call the original sendMessage function
     try {
       await sendMessage();
-      // Refresh usage stats after successful request
+      // Refresh usage data after sending
       setTimeout(() => refetch(), 1000);
     } catch (error) {
       console.error('Send message error:', error);
+      addNotification(
+        'error',
+        'Send Error',
+        'Failed to send message. Please try again.',
+        5000
+      );
     }
   };
 
@@ -78,22 +164,158 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
     );
   };
 
-  // Check if send button should be disabled - fix null handling
-  const isRateLimited = usage ? (usage.requests_remaining ?? 0) <= 0 : false;
+  // FIXED: Better availability calculation
+  const availableModelsCount = usage?.availableModels?.filter(model => 
+    !model.inCooldown && model.remaining > 0
+  ).length || 0;
+  
+  const isRateLimited = availableModelsCount === 0;
   const isSendDisabled = isLoading || input.trim() === '' || isRateLimited;
+
+  // Calculate next available time for better UX
+  const nextModelAvailable = usage?.availableModels
+    ?.filter(model => model.inCooldown && model.minutesRemaining)
+    .sort((a, b) => (a.minutesRemaining || 0) - (b.minutesRemaining || 0))[0];
 
   return (
     <>
-      {/* Rate Limit Modal - ADD THIS */}
+      {/* Enhanced Rate Limit Modal with better data */}
       <RateLimitModal 
         isOpen={showRateLimitModal}
         onClose={() => setShowRateLimitModal(false)}
-        resetTime={usage?.reset_time || new Date().toISOString()}
-        message={`You've reached your daily limit of ${usage?.daily_limit || 50} requests. Your limit will reset at midnight.`}
+        resetTime={usage?.resetTime || new Date().toISOString()}
+        nextAvailableAt={nextModelAvailable?.cooldownEndsAt}
+        message={
+          nextModelAvailable 
+            ? `All models are in cooldown. ${nextModelAvailable.displayName} will be available in ${formatCooldownTime(nextModelAvailable.minutesRemaining || 0)}.`
+            : "All model limits have been reached for today. Your limits will reset at midnight."
+        }
+        modelSummary={{
+          availableModels: usage?.availableModels || [],
+          allModelsExhausted: usage?.allModelsExhausted || true,
+          nextAvailableAt: usage?.nextAvailableAt ? new Date(usage.nextAvailableAt) : undefined
+        }}
       />
 
       <div className="w-full">
         <div className="max-w-4xl mx-auto">
+          {/* Toggle Button for Model Status Bar */}
+          {usage && (
+            <div className="mb-2 flex justify-center">
+              <Button
+                variant="ghost"
+                onClick={() => setIsModelStatusVisible(!isModelStatusVisible)}
+                className="text-sm text-muted-foreground hover:bg-muted py-1 px-3 rounded-full transition-all duration-200"
+              >
+                {isModelStatusVisible ? (
+                  <>
+                    Hide Model Status <ChevronUp className="w-4 h-4 ml-1" />
+                  </>
+                ) : (
+                  <>
+                    Show Model Status ({availableModelsCount} ready) <ChevronDown className="w-4 h-4 ml-1" />
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Enhanced Model Status Bar */}
+          {usage && isModelStatusVisible && (
+            <div className="mb-2 p-3 bg-card rounded-lg border border-border/50 shadow-sm animate-fade-in-down">
+              <div className="flex items-center justify-between text-sm mb-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-muted-foreground font-medium">Active Model:</span>
+                  <div className={`flex items-center space-x-2 px-3 py-1 rounded-full border ${getCostColor('high')}`}>
+                    {getCostIcon('high')}
+                    <span className="font-semibold">{usage.currentModel}</span>
+                  </div>
+                </div>
+                <div className="text-muted-foreground text-right">
+                  <div className="font-medium">{usage.totalRequestsToday} requests today</div>
+                  <div className="text-xs">
+                    {availableModelsCount} of {usage.availableModels?.length || 0} models ready
+                  </div>
+                </div>
+              </div>
+              
+              {/* Enhanced Available Models with Better Status Display */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">Model Status</span>
+                  <span className="text-xs text-muted-foreground">
+                    Next reset: {usage.resetTime ? new Date(usage.resetTime).toLocaleTimeString() : 'Unknown'}
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  {usage.availableModels?.map((model, index) => {
+                    const costType = getModelCost(model, index);
+                    const isAvailable = !model.inCooldown && model.remaining > 0;
+                    
+                    return (
+                      <div 
+                        key={model.name}
+                        className={`flex items-center justify-between p-2 rounded-2xl text-xs border transition-all ${
+                          isAvailable
+                            ? getCostColor(costType) + ' shadow-sm'
+                            : 'text-gray-400 bg-gray-50 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          {getModelStatusIcon(model)}
+                          <span className={isAvailable ? 'font-medium' : 'line-through'}>
+                            {model.displayName}
+                          </span>
+                        </div>
+                        
+                        <div className="text-right">
+                          {model.inCooldown ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-orange-600 font-medium">
+                                {formatCooldownTime(model.minutesRemaining || 0)}
+                              </span>
+                              <span className="text-xs text-gray-500">cooldown</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-end">
+                              <span className={`font-medium ${model.remaining > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                {model.remaining}
+                              </span>
+                              <span className="text-xs text-gray-500">remaining</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              {/* Next Available Time with Better Formatting */}
+              {isRateLimited && (
+                <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-md">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-orange-600" />
+                    <div className="text-sm">
+                      {nextModelAvailable ? (
+                        <span className="text-orange-700">
+                          <strong>{nextModelAvailable.displayName}</strong> available in{' '}
+                          <strong>{formatCooldownTime(nextModelAvailable.minutesRemaining || 0)}</strong>
+                        </span>
+                      ) : (
+                        <span className="text-orange-700">
+                          All limits reached. Resets at <strong>midnight</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Input Area */}
           <div className="p-3 relative flex items-end bg-background rounded-3xl shadow-sm border border-border/50 hover:border-border focus-within:border-border focus-within:ring-accent-orange transition-all duration-200">
             <div className="flex items-center space-x-2 pl-3">
               <Button
@@ -115,10 +337,14 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
               rows={1}
               placeholder={
                 isRateLimited
-                  ? "Daily limit reached - resets at midnight" 
+                  ? nextModelAvailable
+                    ? `All models in cooldown - next available in ${formatCooldownTime(nextModelAvailable.minutesRemaining || 0)}`
+                    : "All models exhausted - resets at midnight"
                   : "Message Arnold..."
               }
-              className="flex-1 resize-none bg-transparent px-3 py-2 text-foreground placeholder-foreground/30 focus:outline-none overflow-hidden"
+              className={`flex-1 resize-none bg-transparent px-3 py-2 text-foreground placeholder-foreground/30 focus:outline-none overflow-hidden ${
+                isRateLimited ? 'placeholder-red-400' : ''
+              }`}
               disabled={isLoading || isRateLimited}
               style={{ minHeight: '24px' }}
             />
@@ -145,7 +371,9 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
                 disabled={isSendDisabled}
                 title={
                   isRateLimited
-                    ? "Daily limit reached" 
+                    ? nextModelAvailable
+                      ? `All models in cooldown - next available in ${formatCooldownTime(nextModelAvailable.minutesRemaining || 0)}`
+                      : "All model limits reached"
                     : "Send message"
                 }
               >
@@ -154,22 +382,9 @@ export default function ChatInput({ input, setInput, sendMessage, isLoading }: C
             </div>
           </div>
           
-          {/* Enhanced footer with usage info */}
-          <div className="flex justify-between items-center text-xs text-text-muted my-2">
+          {/* Enhanced footer */}
+          <div className="flex justify-center items-center text-xs text-text-muted mt-2">
             <p>Arnold can make mistakes. Please use Arnold responsibly.</p>
-            
-            {/* Usage indicator in footer */}
-            {usage && (
-              <div className="flex items-center space-x-2">
-                <span className={`${
-                  (usage.requests_remaining ?? 0) <= 5 ? 'text-orange-500' : 
-                  (usage.requests_remaining ?? 0) <= 1 ? 'text-red-500' : 
-                  'text-green-500'
-                }`}>
-                  {usage.requests_remaining ?? 0}/{usage.daily_limit} daily requests left 
-                </span>
-              </div>
-            )}
           </div>
         </div>
       </div>

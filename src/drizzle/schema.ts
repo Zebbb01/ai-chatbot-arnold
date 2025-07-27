@@ -1,11 +1,14 @@
-// src/drizzle/schema.ts - Updated with invitees support
-import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean, jsonb, uniqueIndex } from 'drizzle-orm/pg-core'; // <--- Add uniqueIndex here
+// =============================================================================
+// src/drizzle/schema.ts - UPDATED WITH MODEL USAGE TRACKING
+// =============================================================================
+
+import { pgTable, uuid, text, timestamp, primaryKey, integer, boolean, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 import type { AdapterAccount } from '@auth/core/adapters';
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name'),
-  email: text('email').unique(), // This is correct for a single unique column
+  email: text('email').unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -71,31 +74,33 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Enhanced schedules table with invitees support
 export const schedules = pgTable('schedules', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
   conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
   title: text('title').notNull(),
-  description: text('description'), // Added description field
+  description: text('description'),
   startTime: timestamp('start_time', { withTimezone: true }).notNull(),
   endTime: timestamp('end_time', { withTimezone: true }),
   location: text('location'),
-  invitees: jsonb('invitees').$type<string[]>(), // Store array of email addresses
-  googleEventId: text('google_event_id'), // Store Google Calendar event ID for future reference
+  invitees: jsonb('invitees').$type<string[]>(),
+  googleEventId: text('google_event_id'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-export const userUsage = pgTable('user_usage', {
+// UPDATED: Replace userUsage with modelUsage for per-model tracking
+export const modelUsage = pgTable('model_usage', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  modelName: text('model_name').notNull(), // e.g., 'openai/gpt-4.1'
   date: text('date').notNull(), // Format: YYYY-MM-DD
   requestCount: integer('request_count').default(0),
   lastRequestAt: timestamp('last_request_at').defaultNow(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({
-  // Add unique constraint for userId + date combination
-  uniqueUserDate: uniqueIndex('unique_user_date').on(table.userId, table.date),
+  // Unique constraint for userId + modelName + date combination
+  uniqueUserModelDate: uniqueIndex('unique_user_model_date').on(table.userId, table.modelName, table.date),
 }));
+
